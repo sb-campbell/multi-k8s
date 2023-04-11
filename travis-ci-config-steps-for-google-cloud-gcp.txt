@@ -1,0 +1,87 @@
+https://www.udemy.com/course/docker-and-kubernetes-the-complete-guide/learn/lecture/11628214
+
+Objective for Travis CI - test build and deploy application to Google Cloud
+
+Setting up Travis CI is kind of like Vagrant/Packer - setup a VM within which the following tasks are installed/executed...
+
+- Install Google Cloud SDK/CLI
+- Configure the SDK with our Google Cloud auth info
+- Login to Docker CLI
+- Build the 'test' version of multi-client
+- Run tests
+- If tests are successful, run a script to deploy newest images
+  - Build all images, tag each. push to Docker Hub
+  - Apply all yaml configs in the 'k8s' folder to GCP
+- Imperatively set latest images on each deployment so that each deployment uses the new latest image
+
+Google Cloud credentials will be stored in 'service-account.json' and uploaded once to Travis CI to setup environment
+  - Setup GCP k8s user credentials - see the following url for instructions from Udemy course
+      https://www.udemy.com/course/docker-and-kubernetes-the-complete-guide/learn/lecture/25408376
+      - GCP console - IAM & Admin -> Service Accounts -> Create Service Account
+      - enter name - 'travis-deployer' -> Create button
+      - Select a role -> Kubernetes Engine -> Kubernetes Engine Admin, click Continue, skip 'Grant Users Access' form, click Done
+      - Select new account in table, ... menu -> Manage Keys, Add Key button -> Create new key, key type 'JSON', click Create
+      - download file as service-account.json (DO NOT COMMIT TO GIT/GITHUB!!!)
+
+Encrypting GCP credentials for Travis CI - requires Travis CLI utility, which requires ruby
+  Can use local install (github.com/travis-ci/travis.rb), however, requires ruby
+  Thus, use default ruby container and install Travis CLI to encrypt GCP credentials for 1-time use
+    docker run -it -v $(pwd):/app ruby sh
+    gem install travis
+    travis login
+      --------------
+      see issues in udemy video due to travis changes here...
+        https://www.udemy.com/course/docker-and-kubernetes-the-complete-guide/learn/lecture/17886124
+
+      encrypting a service account file in the Travis container we created in the previous lecture. 
+      Travis is finalizing its transition from .org to .com, and you may end up getting errors when attempting to log in or during deployment.
+
+      The Travis login now requires a Github Token. Please follow these instructions to create a Personal Token for Travis to use here:
+      
+      https://docs.github.com/en/free-pro-team@latest/github/authenticating-to-github/creating-a-personal-access-token
+      
+      This will also require setting the scope. Travis requires the permissions noted here:
+      
+      https://docs.travis-ci.com/user/github-oauth-scopes/#repositories-on-httpstravis-cicom-private-and-public
+      
+      The login command will now look like this:
+      
+      travis login --github-token YOUR_PERSONAL_TOKEN --com
+      
+      or
+      
+      travis login --github-token YOUR_PERSONAL_TOKEN --pro
+      
+      When you encrypt the file, you must pass the same --com or --pro flag you used to log in:
+      
+      travis encrypt-file service-account.json -r USERNAME/REPO --com
+      
+      or
+      
+      travis encrypt-file service-account.json -r USERNAME/REPO --pro
+      
+      If you are getting iv undefined errors, you may have missed passing the --com or --pro flags to both the login and encryption 
+      commands. Also, if you still have a .org Travis account these old accounts will need to be migrated to .com ASAP.
+      
+      Please visit the migration guide here:
+      
+      https://docs.travis-ci.com/user/migrate/open-source-repository-migration#migrating-a-repository
+      
+      You can also get an iv undefined error if you've passed the wrong repo to the file encryption or passed a repo name 
+      with a typo in it. Please note, after the migration, or after fixing a typo, you'll need to run through the entire encryption process again.
+      --------------
+    copy json file downloaded from GCP into the 'volumed' directory so we can use it in the container, this really should not be the git repo!!! do not put service-account.json in git repo!!!
+    follow instructions output from travis command in container above 
+      add 'openssl' to .travis.yml as indicated
+      add encrypted service-account.json.enc to git 
+      NOTE!!!: remove unencrypted service-account.json from git if you were stupid enough to put it there
+  The entire encrypted key file will be stored as a parameter entry in Travis CI
+
+Create a kubectl secret in GCP to store the postgres password
+  From the cloud console, enter a cloud shell (icon in upper right corner) to create a shell terminal. This terminal is running in the context of the current project and has access to kubectl in the current environment
+    gcloud config set project {project ID}
+    gcloud config set compute/zone 'zone/region ie. us-central1-a'
+    gcloud container clusters get-credentials {cluster-name ie. multi-cluster}
+    kubectl get pods # test the interface
+    kubectl create secret generic pgpassword --from-literal PGPASSWORD={myPGPassword}
+    # see the secret in GCP console -> Configuration -> Secrets

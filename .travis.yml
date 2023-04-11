@@ -1,0 +1,49 @@
+sudo: required
+services:
+  - docker
+env:
+  global:
+    # inline execute git head to grab the latest commit ID (SHA)
+    - SHA=$(git rev-parse HEAD)
+    # disable cloud confirmation prompts
+    - CLOUDSDK_CORE_DISABLE_PROMPTS=1
+before_install:
+  # for instructions on the following openssl line see travis-ci-config-steps-for-google-cloud.txt
+  # this command unencrypts the encrypted credential file and makes it available to the 
+  # gcloud auth command below
+  - openssl command from travis container credentials encryption step
+  - curl https://sdk.cloud.google.com | bash > /dev/null;
+  - source $HOME/google-cloud-sdk/path.bash.inc
+  - gcloud components update kubectl
+  - gcloud auth activate-service-account --key-file service-account.json
+
+  # the following 3 commands can also be executed manually from the GCP console shell to setup that shell environment 
+  # Google Cloud project, see unfriendly project ID from GCP console
+  - gcloud config set project {project ID}
+  # Google Cloud Kubernetes Cluster region location - see GCP console
+  - gcloud config set compute/zone {region/zone}
+  # Google Cloud Kubernetes Cluster name
+  - gcloud container clusters get-credentials {k8s cluster name}
+  
+  # Docker Hub username/password stored in environment variables in travis-ci
+  # from Travis console -> Git repo -> Settings -> Environment Variables
+  - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+  # USERNAME/react-test is just the temporary name of the test image
+  - docker build -t USERNAME/react-test -f ./client/Dockerfile.dev ./client
+script:
+  - docker run USERNAME/react-test npm test -- --coverage
+# or use the CI flag and remove coverage:
+  - docker run -e CI=true USERNAME/react-test npm test
+
+# From the previous Elastic Beanstalk deployment, the 'deploy:' section ran a 'provider' 
+# of 'elasticbeanstalk'. This was essentially a Travis provided configuration/script for
+# deploying to AWS Elastic Beanstalk. There is no such 'provider' for deploying to 
+# GCP Kubernetes. Therefore, we will build our own instructions and place them in a 
+# separate script
+# instruct travis to use bash to execute our own ./deploy.sh script, but, only if 
+# we have pushed changes to master branch
+deploy: 
+  provider: script
+  script: bash ./deploy.sh
+  on: 
+    branch: master
